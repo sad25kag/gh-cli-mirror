@@ -413,10 +413,19 @@ func reviewerSearchFunc(apiClient *api.Client, repo ghrepo.Interface, editable *
 			}
 		}
 
+		// Filter out already-selected reviewers so they don't appear as options.
+		alreadySelected := make(map[string]struct{}, len(editable.Reviewers.DefaultLogins))
+		for _, login := range editable.Reviewers.DefaultLogins {
+			alreadySelected[login] = struct{}{}
+		}
+
 		keys := make([]string, 0, len(candidates))
 		labels := make([]string, 0, len(candidates))
 
 		for _, c := range candidates {
+			if _, found := alreadySelected[c.Login()]; found {
+				continue
+			}
 			keys = append(keys, c.Login())
 			labels = append(labels, c.DisplayName())
 

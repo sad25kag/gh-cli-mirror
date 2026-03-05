@@ -405,21 +405,6 @@ func createRun(opts *CreateOptions) error {
 		return err
 	}
 	var reviewerSearchFunc func(string) prompter.MultiSelectSearchResult
-	if issueFeatures.ActorIsAssignable {
-		reviewerSearchFunc = func(query string) prompter.MultiSelectSearchResult {
-			candidates, moreResults, err := api.SuggestedReviewerActorsForRepo(client, ctx.PRRefs.BaseRepo(), query)
-			if err != nil {
-				return prompter.MultiSelectSearchResult{Err: err}
-			}
-			keys := make([]string, len(candidates))
-			labels := make([]string, len(candidates))
-			for i, c := range candidates {
-				keys[i] = c.Login()
-				labels[i] = c.DisplayName()
-			}
-			return prompter.MultiSelectSearchResult{Keys: keys, Labels: labels, MoreResults: moreResults}
-		}
-	}
 
 	state, err := NewIssueState(*ctx, *opts)
 	if err != nil {
@@ -428,6 +413,29 @@ func createRun(opts *CreateOptions) error {
 
 	if issueFeatures.ActorIsAssignable {
 		state.ActorReviewers = true
+		reviewerSearchFunc = func(query string) prompter.MultiSelectSearchResult {
+			candidates, moreResults, err := api.SuggestedReviewerActorsForRepo(client, ctx.PRRefs.BaseRepo(), query)
+			if err != nil {
+				return prompter.MultiSelectSearchResult{Err: err}
+			}
+
+			// Filter out already-selected reviewers so they don't appear as options.
+			alreadySelected := make(map[string]struct{}, len(state.Reviewers))
+			for _, login := range state.Reviewers {
+				alreadySelected[login] = struct{}{}
+			}
+
+			keys := make([]string, 0, len(candidates))
+			labels := make([]string, 0, len(candidates))
+			for _, c := range candidates {
+				if _, found := alreadySelected[c.Login()]; found {
+					continue
+				}
+				keys = append(keys, c.Login())
+				labels = append(labels, c.DisplayName())
+			}
+			return prompter.MultiSelectSearchResult{Keys: keys, Labels: labels, MoreResults: moreResults}
+		}
 	}
 
 	var openURL string

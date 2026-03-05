@@ -1402,6 +1402,46 @@ func (t testEditorRetriever) Retrieve() (string, error) {
 	return "vim", nil
 }
 
+func TestReviewerSearchFunc_FiltersAlreadySelected(t *testing.T) {
+	reg := &httpmock.Registry{}
+	defer reg.Verify(t)
+
+	// Mock the SuggestedReviewerActors GraphQL response with three users and a team.
+	reg.Register(
+		httpmock.GraphQL(`query SuggestedReviewerActors\b`),
+		httpmock.StringResponse(`{ "data": {
+			"node": {"suggestedReviewerActors": {"nodes": [
+				{"isAuthor": false, "reviewer": {"__typename": "User", "login": "alice", "name": "Alice A"}},
+				{"isAuthor": false, "reviewer": {"__typename": "User", "login": "bob", "name": "Bob B"}},
+				{"isAuthor": false, "reviewer": {"__typename": "User", "login": "carol", "name": "Carol C"}}
+			]}},
+			"repository": {
+				"collaborators": {"nodes": []},
+				"collaboratorsTotalCount": {"totalCount": 0}
+			},
+			"organization": {
+				"teams": {"nodes": [{"slug": "core-team"}]},
+				"teamsTotalCount": {"totalCount": 1}
+			}
+		} }`))
+
+	httpClient := &http.Client{Transport: reg}
+	apiClient := api.NewClientFromHTTP(httpClient)
+	repo := ghrepo.New("OWNER", "REPO")
+
+	editable := &shared.Editable{}
+	editable.Reviewers.DefaultLogins = []string{"bob", "OWNER/core-team"}
+	editable.Metadata = api.RepoMetadataResult{}
+
+	searchFn := reviewerSearchFunc(apiClient, repo, editable, "PR_ID123")
+	result := searchFn("test")
+
+	require.NoError(t, result.Err)
+	// bob and OWNER/core-team should be filtered out
+	assert.Equal(t, []string{"alice", "carol"}, result.Keys)
+	assert.Equal(t, []string{"alice (Alice A)", "carol (Carol C)"}, result.Labels)
+}
+
 // TODO projectsV1Deprecation
 // Remove this test.
 func TestProjectsV1Deprecation(t *testing.T) {
